@@ -384,7 +384,12 @@ void AExcelionCharacter::Move(const FInputActionValue& Value)
 void AExcelionCharacter::MoveForward(const FInputActionValue& Value)
 {
 	const float ForwardValue = Value.Get<float>();
-	UE_LOG(LogTemp, Warning, TEXT("[MOVE] MoveForward called: Value=%.2f"), ForwardValue);
+	const FVector CurrentLoc = GetActorLocation();
+	const FVector CurrentVel = GetCharacterMovement()->Velocity;
+	
+	UE_LOG(LogTemp, Error, TEXT("[WASD-FORWARD] Input=%.2f | Pos=(%.0f,%.0f,%.0f) | Vel=(%.0f,%.0f,%.0f) | MovMode=%d"), 
+		ForwardValue, CurrentLoc.X, CurrentLoc.Y, CurrentLoc.Z, CurrentVel.X, CurrentVel.Y, CurrentVel.Z, 
+		(int32)GetCharacterMovement()->MovementMode);
 	
 	if (bIsDashing || IsDead())
 	{
@@ -395,7 +400,8 @@ void AExcelionCharacter::MoveForward(const FInputActionValue& Value)
 	if (ForwardValue != 0.f)
 	{
 		const FVector ForwardDir = GetActorForwardVector();
-		UE_LOG(LogTemp, Warning, TEXT("[MOVE] AddMovementInput: Forward=%.2f, Direction=%s"), ForwardValue, *ForwardDir.ToString());
+		UE_LOG(LogTemp, Error, TEXT("[WASD-FORWARD-APPLY] Adding movement: Value=%.2f, Direction=(%.2f,%.2f,%.2f)"), 
+			ForwardValue, ForwardDir.X, ForwardDir.Y, ForwardDir.Z);
 		AddMovementInput(ForwardDir, ForwardValue);
 	}
 }
@@ -403,7 +409,12 @@ void AExcelionCharacter::MoveForward(const FInputActionValue& Value)
 void AExcelionCharacter::MoveRight(const FInputActionValue& Value)
 {
 	const float RightValue = Value.Get<float>();
-	UE_LOG(LogTemp, Warning, TEXT("[MOVE] MoveRight called: Value=%.2f"), RightValue);
+	const FVector CurrentLoc = GetActorLocation();
+	const FVector CurrentVel = GetCharacterMovement()->Velocity;
+	
+	UE_LOG(LogTemp, Error, TEXT("[WASD-RIGHT] Input=%.2f | Pos=(%.0f,%.0f,%.0f) | Vel=(%.0f,%.0f,%.0f) | MovMode=%d"), 
+		RightValue, CurrentLoc.X, CurrentLoc.Y, CurrentLoc.Z, CurrentVel.X, CurrentVel.Y, CurrentVel.Z, 
+		(int32)GetCharacterMovement()->MovementMode);
 	
 	if (bIsDashing || IsDead())
 	{
@@ -414,7 +425,8 @@ void AExcelionCharacter::MoveRight(const FInputActionValue& Value)
 	if (RightValue != 0.f)
 	{
 		const FVector RightDir = GetActorRightVector();
-		UE_LOG(LogTemp, Warning, TEXT("[MOVE] AddMovementInput: Right=%.2f, Direction=%s"), RightValue, *RightDir.ToString());
+		UE_LOG(LogTemp, Error, TEXT("[WASD-RIGHT-APPLY] Adding movement: Value=%.2f, Direction=(%.2f,%.2f,%.2f)"), 
+			RightValue, RightDir.X, RightDir.Y, RightDir.Z);
 		AddMovementInput(RightDir, RightValue);
 	}
 }
