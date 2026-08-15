@@ -82,6 +82,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (DisplayName = "Default Mapping Context"))
 	TObjectPtr<class UInputMappingContext> DefaultMappingContext;
 
+	// Editor assets: IA_Move / IA_Look (Axis2D) — wired on BP_ExcelionCharacter CDO
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (DisplayName = "Move Action"))
+	TObjectPtr<class UInputAction> MoveAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (DisplayName = "Look Action"))
+	TObjectPtr<class UInputAction> LookAction;
+
 	// Movement actions - separate for each axis (Axis1D for proper value handling)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (DisplayName = "Move Forward Action"))
 	TObjectPtr<class UInputAction> MoveForwardAction;

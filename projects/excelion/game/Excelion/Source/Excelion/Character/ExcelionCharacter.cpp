@@ -69,13 +69,31 @@ AExcelionCharacter::AExcelionCharacter()
 	// Option 2: Fallback to runtime setup with proper key modifiers
 	// NOTE: SetupPlayerInputComponent will handle axis input, this is for mapping context only
 	
-	// Try loading from editor
+	// Try loading editor-created input assets (IMC + IA_* used by BP_ExcelionCharacter CDO)
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultIMCAsset(TEXT("/Game/Input/IMC_Default"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> MoveAsset(TEXT("/Game/Input/IA_Move"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> LookAsset(TEXT("/Game/Input/IA_Look"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> AttackAsset(TEXT("/Game/Input/IA_Attack"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> DashAsset(TEXT("/Game/Input/IA_Dash"));
+
 	if (DefaultIMCAsset.Succeeded())
 	{
 		DefaultMappingContext = DefaultIMCAsset.Object;
-		UE_LOG(LogTemp, Warning, TEXT("[INIT] ✓ Loaded IMC_Default from editor asset"));
-		return;  // Asset has actions configured already
+		if (MoveAsset.Succeeded()) { MoveAction = MoveAsset.Object; }
+		if (LookAsset.Succeeded()) { LookAction = LookAsset.Object; }
+		if (AttackAsset.Succeeded()) { AttackAction = AttackAsset.Object; }
+		if (DashAsset.Succeeded()) { DashAction = DashAsset.Object; }
+		UE_LOG(LogTemp, Warning, TEXT("[INIT] Loaded editor input assets - IMC:%s Move:%s Look:%s Attack:%s Dash:%s"),
+			DefaultMappingContext ? *DefaultMappingContext->GetName() : TEXT("NULL"),
+			MoveAction ? *MoveAction->GetName() : TEXT("NULL"),
+			LookAction ? *LookAction->GetName() : TEXT("NULL"),
+			AttackAction ? *AttackAction->GetName() : TEXT("NULL"),
+			DashAction ? *DashAction->GetName() : TEXT("NULL"));
+		if (MoveAction && LookAction)
+		{
+			return;
+		}
+		UE_LOG(LogTemp, Warning, TEXT("[INIT] Editor IMC found but IA_Move/IA_Look missing - falling back to runtime input setup"));
 	}
 	
 	// Fallback: Create runtime mapping context (but keep it simple)
@@ -96,7 +114,7 @@ AExcelionCharacter::AExcelionCharacter()
 		MoveForwardAction->ValueType = EInputActionValueType::Axis1D;
 		FEnhancedActionKeyMapping& WMapping = DefaultMappingContext->MapKey(MoveForwardAction, EKeys::W);
 		FEnhancedActionKeyMapping& SMapping = DefaultMappingContext->MapKey(MoveForwardAction, EKeys::S);
-		SMapping.Modifiers.Add(UInputModifierNegate::StaticClass());
+		SMapping.Modifiers.Add(NewObject<UInputModifierNegate>());
 	}
 
 	MoveRightAction = NewObject<UInputAction>(this, TEXT("MoveRightAction"));
@@ -105,7 +123,7 @@ AExcelionCharacter::AExcelionCharacter()
 		MoveRightAction->ValueType = EInputActionValueType::Axis1D;
 		FEnhancedActionKeyMapping& DMapping = DefaultMappingContext->MapKey(MoveRightAction, EKeys::D);
 		FEnhancedActionKeyMapping& AMapping = DefaultMappingContext->MapKey(MoveRightAction, EKeys::A);
-		AMapping.Modifiers.Add(UInputModifierNegate::StaticClass());
+		AMapping.Modifiers.Add(NewObject<UInputModifierNegate>());
 	}
 
 	LookXAction = NewObject<UInputAction>(this, TEXT("LookXAction"));
@@ -120,7 +138,7 @@ AExcelionCharacter::AExcelionCharacter()
 	{
 		LookYAction->ValueType = EInputActionValueType::Axis1D;
 		FEnhancedActionKeyMapping& YMapping = DefaultMappingContext->MapKey(LookYAction, EKeys::MouseY);
-		YMapping.Modifiers.Add(UInputModifierNegate::StaticClass());
+		YMapping.Modifiers.Add(NewObject<UInputModifierNegate>());
 	}
 
 	AttackAction = NewObject<UInputAction>(this, TEXT("AttackAction"));
@@ -224,19 +242,18 @@ void AExcelionCharacter::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("[INIT] PlayerController found - clearing old contexts and registering new one"));
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
 		{
-			// CRITICAL: Remove ALL existing mapping contexts to prevent conflicts
 			Subsystem->ClearAllMappings();
 			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Cleared all existing mapping contexts"));
-			
-			if (DefaultMappingContext)
+
+			const int32 MappingCount = DefaultMappingContext ? DefaultMappingContext->GetMappings().Num() : 0;
+			if (DefaultMappingContext && MappingCount > 0)
 			{
-				// Priority 0 = highest priority (processed first)
 				Subsystem->AddMappingContext(DefaultMappingContext, 0);
-				UE_LOG(LogTemp, Warning, TEXT("[INPUT] DefaultMappingContext registered with priority 0 (ONLY context)"));
+				UE_LOG(LogTemp, Warning, TEXT("[INPUT] DefaultMappingContext registered (%d mappings)"), MappingCount);
 			}
 			else
 			{
-				UE_LOG(LogTemp, Error, TEXT("[INPUT] ERROR: DefaultMappingContext is NULL!"));
+				UE_LOG(LogTemp, Warning, TEXT("[INPUT] DefaultMappingContext skipped (NULL or 0 mappings) — legacy axis fallback active"));
 			}
 		}
 		else
@@ -292,46 +309,47 @@ void AExcelionCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		bool bHasActions = MoveForwardAction && MoveRightAction && LookXAction && LookYAction;
-		
-		if (bHasActions)
+		bool bBoundEnhancedInput = false;
+
+		// Primary path: editor assets IA_Move / IA_Look (Axis2D) on BP_ExcelionCharacter CDO
+		if (MoveAction && LookAction)
 		{
-			// Movement: Bind forward/backward movement
-			EnhancedInputComponent->BindAction(MoveForwardAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::MoveForward);
-			UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound MoveForwardAction"));
-			
-			// Movement: Bind left/right movement
-			EnhancedInputComponent->BindAction(MoveRightAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::MoveRight);
-			UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound MoveRightAction"));
-			
-			// Look: Bind X axis (horizontal mouse movement)
-			EnhancedInputComponent->BindAction(LookXAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::LookX);
-			UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound LookXAction"));
-			
-			// Look: Bind Y axis (vertical mouse movement)
-			EnhancedInputComponent->BindAction(LookYAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::LookY);
-			UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound LookYAction"));
-			
-			// Combat actions
-			if (AttackAction)
-			{
-				EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &AExcelionCharacter::Attack);
-				UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound AttackAction"));
-			}
-			if (DashAction)
-			{
-				EnhancedInputComponent->BindAction(DashAction, ETriggerEvent::Started, this, &AExcelionCharacter::Dash);
-				UE_LOG(LogTemp, Warning, TEXT("[INPUT] ✓ Bound DashAction"));
-			}
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::Move);
+			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::Look);
+			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Bound IA_Move / IA_Look (Axis2D editor assets)"));
+			bBoundEnhancedInput = true;
 		}
-		else
+		else if (MoveForwardAction && MoveRightAction && LookXAction && LookYAction)
 		{
-			// FALLBACK: If Enhanced Input actions weren't created properly, use basic axis input
-			UE_LOG(LogTemp, Warning, TEXT("[INPUT] ! Enhanced actions NULL - using DefaultInput.ini axis bindings"));
-			PlayerInputComponent->BindAxis("MoveForward", this, &AExcelionCharacter::MoveForwardAxis);
-			PlayerInputComponent->BindAxis("MoveRight", this, &AExcelionCharacter::MoveRightAxis);
-			PlayerInputComponent->BindAxis("LookUp", this, &AExcelionCharacter::LookUpAxis);
-			PlayerInputComponent->BindAxis("Turn", this, &AExcelionCharacter::TurnAxis);
+			EnhancedInputComponent->BindAction(MoveForwardAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::MoveForward);
+			EnhancedInputComponent->BindAction(MoveRightAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::MoveRight);
+			EnhancedInputComponent->BindAction(LookXAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::LookX);
+			EnhancedInputComponent->BindAction(LookYAction, ETriggerEvent::Triggered, this, &AExcelionCharacter::LookY);
+			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Bound runtime Axis1D move/look actions"));
+			bBoundEnhancedInput = true;
+		}
+
+		if (AttackAction)
+		{
+			EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &AExcelionCharacter::Attack);
+			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Bound AttackAction"));
+		}
+		if (DashAction)
+		{
+			EnhancedInputComponent->BindAction(DashAction, ETriggerEvent::Started, this, &AExcelionCharacter::Dash);
+			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Bound DashAction"));
+		}
+
+		// Always bind legacy axis — works when IMC is empty or Enhanced Input fails
+		PlayerInputComponent->BindAxis("MoveForward", this, &AExcelionCharacter::MoveForwardAxis);
+		PlayerInputComponent->BindAxis("MoveRight", this, &AExcelionCharacter::MoveRightAxis);
+		PlayerInputComponent->BindAxis("LookUp", this, &AExcelionCharacter::LookUpAxis);
+		PlayerInputComponent->BindAxis("Turn", this, &AExcelionCharacter::TurnAxis);
+		UE_LOG(LogTemp, Warning, TEXT("[INPUT] Legacy axis fallback ALWAYS bound (MoveForward/MoveRight/Turn/LookUp)"));
+
+		if (!bBoundEnhancedInput)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[INPUT] Enhanced move/look not bound — relying on DefaultInput.ini axis mappings"));
 		}
 	}
 	else
@@ -349,9 +367,18 @@ void AExcelionCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 void AExcelionCharacter::Move(const FInputActionValue& Value)
 {
-	// This function is kept for backward compatibility but is no longer used.
-	// Input is now routed through MoveForward() and MoveRight() instead.
-	UE_LOG(LogTemp, Warning, TEXT("[MOVE] Move() called (legacy - should not happen with Axis1D actions)"));
+	const FVector2D MovementVector = Value.Get<FVector2D>();
+
+	if (bIsDashing || IsDead())
+	{
+		return;
+	}
+
+	if (!MovementVector.IsNearlyZero())
+	{
+		AddMovementInput(GetActorForwardVector(), MovementVector.Y);
+		AddMovementInput(GetActorRightVector(), MovementVector.X);
+	}
 }
 
 void AExcelionCharacter::MoveForward(const FInputActionValue& Value)
